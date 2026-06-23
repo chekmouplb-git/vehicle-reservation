@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: Lato, sans-serif; text-align: center; }
+    #calendar { margin: 20px auto; border-collapse: collapse; width: 90%; max-width: 700px; }
+    #calendar th, #calendar td {
+      border: 1px solid #6C8D13; padding: 10px; width: 14.28%; height: 40px;
+      vertical-align: top; cursor: pointer;
+    }
+    #calendar th { background: #f4f4f4; }
+    #calendar td:hover { background: #f0f8ff; }
+    .today { background: #d1ffd1 !important; font-weight: bold; }
+    .disabled { background: #f5f5f5; color: #aaa; pointer-events: none; cursor: not-allowed; }
+    .holiday-note { font-size: 10px; color: #b00; margin-top: 2px; }
+
+    .header { display: flex; justify-content: center; align-items: center; margin: 10px 0; gap: 10px; }
+    .header button { padding: 5px 10px; }
+
+    .modal { display: none; position: fixed; z-index: 10; left: 0; top: 0;
+             width: 100%; height: 100%; overflow: auto; background: rgba(0,0,0,0.4); }
+    .modal-content {
+      background: #fff; margin: 6% auto; padding: 20px; border: 1px solid #ccc;
+      width: 90%; max-width: 520px; border-radius: 8px; text-align: left;
+    }
+    .close { float: right; font-size: 20px; font-weight: bold; cursor: pointer; }
+
+    .slot-box { margin: 8px 0; padding: 8px; border: 1px solid #ccc; border-radius: 6px; }
+    .Reservation.approved { background: #00563F; color: #fff; border-color: #004733; }
+    .Reservation.pencilbooked { background: #fff; color: #c6c6c6; border-color: #666; }
+    .DeanSched.approved { background: #6C8D13; color: #fff; border-color: #557010; }
+    .DeanSched.pencilbooked { background: #fdf7e3; color: #a17f00; border-color: #d1a400; }
+    .DeanSched.scheduled { background: #134f8d; color: #fff; border-color: #0f3f6f; }
+    .DeanSched.cancelled { background: #ffecec; color: #c41717; border-color: #c41717; }
+
+    .muted { color: #666; font-size: 12px; }
+    .muted1 { color: #c6c6c6; font-size: 12px; }
+    .divider { margin: 12px 0; border-top: 1px dashed #bbb; }
+
+    label { display: block; margin-top: 8px; }
+    input[type="time"], input[type="text"], input[type="email"] {
+      width: 100%; padding: 6px; box-sizing: border-box;
+    }
+    button { margin-top: 10px; padding: 8px 12px; cursor: pointer; }
+
+    .passenger-row { display: flex; gap: 10px; margin-top: 5px; }
+    .passenger-row input { flex: 1; }
+
+    .error-message {
+      background-color: #ffecec; border: 1px solid #ffb3b3;
+      color: #c41717; padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 14px;
+    }
+    .error-message strong { color: #a00; }
+
+    .submit-button {
+      background-color: #00563F; color: white; border: none;
+      padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold;
+    }
+    .submit-button:disabled { background-color: #cccccc; cursor: not-allowed; }
+
+    .loading {
+      display: inline-block; width: 20px; height: 20px;
+      border: 3px solid #f3f3f3; border-top: 3px solid #00563F;
+      border-radius: 50%; animation: spin 1s linear infinite;
+      margin-right: 10px; vertical-align: middle;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    .time-warning { color: #c41717; font-size: 12px; margin-top: 5px; display: none; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <button onclick="prevMonth()">◀</button>
+    <h3 id="monthYear"></h3>
+    <button onclick="nextMonth()">▶</button>
+  </div>
+
+  <table id="calendar"></table>
+
+  <div id="reservationModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal()">&times;</span>
+      <h3 id="modalDate"></h3>
+
+      <h4>Reservations</h4>
+      <div id="existingList">Loading…</div>
+
+      <div class="divider"></div>
+      <h4>Reserve the College Vehicle</h4>
+      <div class="muted"><b>Note:</b> Units are responsible for the driver's TEV and college vehicle's fuel expenses for the duration of the trip.</div>
+
+      <div id="duplicateError" class="error-message" style="display: none;"></div>
+
+      <form id="reservationForm">
+        <input type="hidden" id="resDate">
+
+        <label for="startTime">Start Time:</label>
+        <input type="time" id="startTime" required>
+
+        <label for="endTime">End Time:</label>
+        <input type="time" id="endTime" required>
+        <div id="timeWarning" class="time-warning"></div>
+
+        <label for="destination">Destination:</label>
+        <input type="text" id="destination" required>
+
+        <label for="purpose">Purpose:</label>
+        <input type="text" id="purpose" required>
+
+        <label for="remarks">Remarks:</label>
+        <input type="text" id="remarks">
+
+        <h4>Passengers</h4>
+        <div id="passengersContainer"></div>
+        <button type="button" onclick="addPassenger()">+ Add Passenger</button>
+
+        <h4>Main Requestor</h4>
+        <label>Name:</label>
+        <input type="text" id="mainRequestor" required>
+        <label>Email:</label>
+        <input type="email" id="mainEmail" required>
+
+        <button type="submit" id="submitButton" class="submit-button">Submit Reservation</button>
+        <span id="loadingSpinner" style="display: none;">
+          <div class="loading"></div> Processing...
+        </span>
+      </form>
+    </div>
+  </div>
+
+  <div id="confirmationModal" class="modal">
+    <div class="modal-content">
+      <span id="closeConfirmation" class="close">&times;</span>
+      <p id="confirmationMessage"></p>
+    </div>
+  </div>
+
+  <div id="errorModal" class="modal">
+    <div class="modal-content">
+      <span id="closeError" class="close">&times;</span>
+      <h3>Error</h3>
+      <p id="errorMessage"></p>
+    </div>
+  </div>
+
+  <script>
+    // ============================================================
+    // 🔑 PASTE YOUR GAS DEPLOYMENT URL HERE
+    // ============================================================
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbym57M3Zs52gJnmWaKEWvQCYT9Uztyh5qu5PRUjKAuUmH7oeS_6LNVDNldIMoYa31Q/exec";
+
+    // ============================================================
+    // API helper
+    // ============================================================
+    async function api(action, params = {}) {
+      const url = new URL(GAS_URL);
+      url.searchParams.set("action", action);
+      for (const [key, value] of Object.entries(params)) {
+        url.searchParams.set(key, value);
+      }
+      const res = await fetch(url.toString());
+      if (!res.ok) throw new Error(`Network error: ${res.status}`);
+      return res.json();
+    }
+
+    // ============================================================
+    // State
+    // ============================================================
+    let holidaysMap = {};
+    let currentDate = new Date();
+    let isSubmitting = false;
+
+    // ============================================================
+    // On page load
+    // ============================================================
+    window.onload = async () => {
+      // Add default passenger row
+      addPassenger();
+
+      // Time validation listeners
+      ["startTime", "endTime"].forEach(id => {
+        document.getElementById(id).addEventListener("change", validateTimes);
+        document.getElementById(id).addEventListener("input", validateTimes);
+      });
+
+      // Escape key closes modals
+      document.addEventListener("keydown", function(e) {
+        if (e.key === "Escape") {
+          closeModal();
+          document.getElementById("confirmationModal").style.display = "none";
+          closeErrorModal();
+        }
+      });
+
+      // Render calendar immediately (no holidays yet)
+      renderCalendar(currentDate);
+
+      // Then fetch holidays and re-render
+      try {
+        const holidays = await api("getHolidays");
+        holidays.forEach(h => { holidaysMap[h.date] = h.name; });
+        renderCalendar(currentDate);
+      } catch (err) {
+        console.error("Failed to load holidays:", err);
+      }
+    };
+
+    // ============================================================
+    // Calendar
+    // ============================================================
+    function renderCalendar(date) {
+      const month = date.getMonth(), year = date.getFullYear();
+      const today = new Date();
+      const firstDay = new Date(year, month, 1).getDay();
+      const lastDate = new Date(year, month + 1, 0).getDate();
+
+      document.getElementById("monthYear").textContent =
+        date.toLocaleString("default", { month: "long", year: "numeric" });
+
+      const table = document.getElementById("calendar");
+      table.innerHTML = "";
+
+      const headerRow = document.createElement("tr");
+      ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(d => {
+        const th = document.createElement("th"); th.textContent = d; headerRow.appendChild(th);
+      });
+      table.appendChild(headerRow);
+
+      let row = document.createElement("tr");
+      for (let i = 0; i < firstDay; i++) row.appendChild(document.createElement("td"));
+
+      for (let day = 1; day <= lastDate; day++) {
+        if (row.children.length === 7) { table.appendChild(row); row = document.createElement("tr"); }
+        const cell = document.createElement("td");
+        cell.textContent = day;
+        const cellDate = new Date(year, month, day);
+        const iso = `${year}-${String(month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+        const isSunday = cellDate.getDay() === 0;
+        const holiday = holidaysMap[iso];
+
+        if (cellDate < new Date(today.getFullYear(), today.getMonth(), today.getDate()) || isSunday || holiday) {
+          cell.classList.add("disabled");
+          if (holiday) {
+            const note = document.createElement("div");
+            note.className = "holiday-note";
+            note.textContent = holiday;
+            cell.appendChild(note);
+          }
+        } else {
+          cell.onclick = () => openModal(year, month, day);
+        }
+
+        if (day === today.getDate() && month === today.getMonth() && year === today.getFullYear()) {
+          cell.classList.add("today");
+        }
+        row.appendChild(cell);
+      }
+
+      while (row.children.length < 7) row.appendChild(document.createElement("td"));
+      table.appendChild(row);
+    }
+
+    function prevMonth() { currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth()-1, 1); renderCalendar(currentDate); }
+    function nextMonth() { currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth()+1, 1); renderCalendar(currentDate); }
+
+    // ============================================================
+    // Modal
+    // ============================================================
+    async function openModal(year, month, day) {
+      const date = new Date(year, month, day);
+      const formattedDate = date.toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" });
+
+      document.getElementById("modalDate").textContent = `Details for ${formattedDate}`;
+      document.getElementById("resDate").value = formattedDate;
+      document.getElementById("existingList").innerHTML = "Loading…";
+      document.getElementById("reservationModal").style.display = "block";
+
+      // Reset form
+      document.getElementById("reservationForm").reset();
+      document.getElementById("passengersContainer").innerHTML = "";
+      addPassenger();
+      hideDuplicateError();
+      enableSubmitButton();
+      document.getElementById("timeWarning").style.display = "none";
+
+      try {
+        const list = await api("getSchedulesForDate", { date: formattedDate });
+
+        if (!list || list.length === 0) {
+          document.getElementById("existingList").innerHTML = "<i>No reservations yet.</i>";
+        } else {
+          const filtered = list.filter(i => {
+            if (i.type === "Reservation") {
+              const st = (i.status || "").toLowerCase();
+              return st === "pencil booked" || st === "approved";
+            }
+            return true;
+          });
+
+          // Deduplicate by reservation code
+          const seen = new Set();
+          const unique = filtered.filter(i => {
+            if (i.code && seen.has(i.code)) return false;
+            if (i.code) seen.add(i.code);
+            return true;
+          });
+
+          if (unique.length === 0) {
+            document.getElementById("existingList").innerHTML = "<i>No reservations yet.</i>";
+          } else {
+            document.getElementById("existingList").innerHTML = unique.map(i => {
+              const typeClass = i.type || "";
+              const statusClass = (i.status || "").toLowerCase().replace(/\s+/g, "");
+              return `<div class="slot-box ${typeClass} ${statusClass}">
+                <b>${i.startTime} - ${i.endTime}</b>
+                <br><b>Destination:</b> ${i.destination || "N/A"}
+                ${i.requestor ? `<br><b>Requestor:</b> ${i.requestor}` : ""}
+                ${i.remarks ? `<br><b>Remarks:</b> ${i.remarks}` : ""}
+                <br><span class="muted1">Status: ${i.status}</span>
+              </div>`;
+            }).join("");
+          }
+        }
+      } catch (err) {
+        document.getElementById("existingList").innerHTML = `<i>Error loading schedules: ${err.message}</i>`;
+      }
+    }
+
+    function closeModal() { document.getElementById("reservationModal").style.display = "none"; }
+    function closeErrorModal() { document.getElementById("errorModal").style.display = "none"; }
+
+    function addPassenger(name = "", email = "") {
+      const c = document.getElementById("passengersContainer");
+      const d = document.createElement("div");
+      d.className = "passenger-row";
+      d.innerHTML = `
+        <input type="text" placeholder="Passenger Name" value="${name}" required>
+        <input type="email" placeholder="Passenger Email" value="${email}" required>
+        <button type="button" onclick="this.parentElement.remove()"
+          style="background:#e74c3c;color:#fff;border:none;border-radius:4px;padding:0 8px;cursor:pointer;">✖</button>
+      `;
+      c.appendChild(d);
+    }
+
+    function showDuplicateError(message) {
+      const errorDiv = document.getElementById("duplicateError");
+      errorDiv.innerHTML = `
+        <strong>Duplicate Reservation Detected</strong><br>${message}<br><br>
+        <strong>If you think this is an error, please contact the administrator.</strong>
+      `;
+      errorDiv.style.display = "block";
+    }
+    function hideDuplicateError() { document.getElementById("duplicateError").style.display = "none"; }
+
+    function showLoading() {
+      document.getElementById("loadingSpinner").style.display = "inline-block";
+      document.getElementById("submitButton").disabled = true;
+      isSubmitting = true;
+    }
+    function hideLoading() {
+      document.getElementById("loadingSpinner").style.display = "none";
+      document.getElementById("submitButton").disabled = false;
+      isSubmitting = false;
+    }
+    function enableSubmitButton() {
+      document.getElementById("submitButton").disabled = false;
+      isSubmitting = false;
+    }
+    function showErrorModal(message) {
+      document.getElementById("errorMessage").textContent = message;
+      document.getElementById("errorModal").style.display = "block";
+    }
+
+    // ============================================================
+    // Validation
+    // ============================================================
+    function validateTimes() {
+      const startTime = document.getElementById("startTime").value;
+      const endTime = document.getElementById("endTime").value;
+      const warning = document.getElementById("timeWarning");
+      const submitButton = document.getElementById("submitButton");
+
+      warning.style.display = "none";
+      submitButton.disabled = false;
+      submitButton.style.backgroundColor = "#00563F";
+
+      if (startTime && endTime) {
+        const toMin = t => parseInt(t.split(":")[0]) * 60 + parseInt(t.split(":")[1]);
+        const diff = toMin(endTime) - toMin(startTime);
+
+        if (diff <= 0) {
+          warning.textContent = "⚠ Start time must be before end time";
+          warning.style.display = "block";
+          submitButton.disabled = true;
+          submitButton.style.backgroundColor = "#cccccc";
+        } else if (diff < 30) {
+          warning.textContent = "⚠ Minimum reservation is 30 minutes";
+          warning.style.display = "block";
+          submitButton.disabled = true;
+          submitButton.style.backgroundColor = "#cccccc";
+        }
+      }
+    }
+
+    function convert24to12(timeStr) {
+      const [h, m] = timeStr.split(":").map(Number);
+      const ampm = h >= 12 ? "PM" : "AM";
+      const hr = h % 12 || 12;
+      return `${hr}:${m.toString().padStart(2, "0")} ${ampm}`;
+    }
+
+    // ============================================================
+    // Form submit
+    // ============================================================
+    document.getElementById("reservationForm").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      if (isSubmitting) return;
+
+      hideDuplicateError();
+
+      const startTime = document.getElementById("startTime").value;
+      const endTime = document.getElementById("endTime").value;
+
+      if (!startTime || !endTime) { showErrorModal("Please enter both start and end times."); return; }
+
+      const toMin = t => parseInt(t.split(":")[0]) * 60 + parseInt(t.split(":")[1]);
+      const diff = toMin(endTime) - toMin(startTime);
+      if (diff <= 0) { showErrorModal("Start time must be before end time."); return; }
+      if (diff < 30) { showErrorModal("Reservation must be at least 30 minutes."); return; }
+
+      const passengerRows = document.querySelectorAll("#passengersContainer .passenger-row");
+      if (passengerRows.length === 0) { showErrorModal("Please add at least one passenger."); return; }
+
+      const passengers = [];
+      let isValid = true;
+      passengerRows.forEach(r => {
+        const inputs = r.querySelectorAll("input");
+        const name = inputs[0].value.trim();
+        const email = inputs[1].value.trim();
+        if (!name || !email) { isValid = false; return; }
+        passengers.push({ name, email });
+      });
+      if (!isValid) { showErrorModal("Please fill in all passenger fields."); return; }
+
+      const data = {
+        date: document.getElementById("resDate").value,
+        startTime: convert24to12(startTime),
+        endTime: convert24to12(endTime),
+        destination: document.getElementById("destination").value,
+        purpose: document.getElementById("purpose").value,
+        remarks: document.getElementById("remarks").value,
+        passengers,
+        mainRequestor: document.getElementById("mainRequestor").value,
+        mainEmail: document.getElementById("mainEmail").value
+      };
+
+      showLoading();
+
+      try {
+        const url = new URL(GAS_URL);
+        url.searchParams.set("action", "saveReservation");
+        url.searchParams.set("body", JSON.stringify(data));
+
+        const res = await fetch(url.toString());
+        const response = await res.json();
+        hideLoading();
+
+        if (response.error) {
+          if (response.isDuplicate) {
+            showDuplicateError(response.error);
+            document.getElementById("duplicateError").scrollIntoView({ behavior: "smooth" });
+          } else {
+            showErrorModal("Error: " + response.error);
+          }
+        } else {
+          closeModal();
+          document.getElementById("confirmationMessage").innerHTML = `
+            <div style="text-align:center;">
+              <h3 style="color:#00563F;margin-bottom:20px;">Reservation Submitted Successfully!</h3>
+              <p style="margin-bottom:10px;color:#666;">Your reservation code is:</p>
+              <div style="font-size:28px;font-weight:bold;color:#00563F;
+                   margin:20px 0;padding:10px;background-color:#f8f9fa;
+                   border-radius:6px;border:1px solid #dee2e6;">
+                ${response.code}
+              </div>
+              <p style="font-size:14px;color:#666;margin-top:20px;">
+                Please keep this code for your reference.
+              </p>
+            </div>`;
+          document.getElementById("confirmationModal").style.display = "block";
+        }
+      } catch (err) {
+        hideLoading();
+        showErrorModal("Server error: " + err.message);
+      }
+    });
+
+    // ============================================================
+    // Modal close handlers
+    // ============================================================
+    document.getElementById("closeConfirmation").onclick = () => {
+      document.getElementById("confirmationModal").style.display = "none";
+    };
+    document.getElementById("closeError").onclick = closeErrorModal;
+
+    window.onclick = function(event) {
+      ["reservationModal","confirmationModal","errorModal"].forEach(id => {
+        const modal = document.getElementById(id);
+        if (event.target === modal) {
+          if (id === "reservationModal") closeModal();
+          else if (id === "confirmationModal") document.getElementById("confirmationModal").style.display = "none";
+          else closeErrorModal();
+        }
+      });
+    };
+  </script>
+</body>
+</html>
