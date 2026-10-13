@@ -204,6 +204,50 @@
     }
     .close-btn:hover { background: var(--gray-200); }
 
+    /* RESERVATION MODAL — landscape on tablet/desktop, stacked on phones */
+    @media (min-width: 768px) {
+      .modal-content--wide {
+        max-width: 1040px;
+        height: calc(100vh - 48px);
+        max-height: 820px;
+        display: flex;
+        flex-direction: column;
+        padding: 20px 0 0;
+        overflow: hidden;
+      }
+      .modal.is-open:has(.modal-content--wide) {
+        align-items: center;
+        padding: 24px;
+      }
+      .modal-content--wide .modal-header {
+        padding: 0 24px 14px;
+        margin-bottom: 0;
+        border-bottom: 1px solid var(--gray-200);
+      }
+      .modal-body {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(260px, 34%) 1fr;
+      }
+      .modal-body > hr.divider { display: none; }
+      .modal-pane {
+        overflow-y: auto;
+        padding: 18px 24px 24px;
+        overscroll-behavior: contain;
+      }
+      .modal-pane--schedule {
+        background: var(--gray-100);
+        border-right: 1px solid var(--gray-200);
+      }
+      .form-row.wide-two-col { grid-template-columns: 1fr 1fr; }
+      .modal-pane--form .submit-btn {
+        position: sticky;
+        bottom: 0;
+        box-shadow: 0 -12px 16px -8px #fff;
+      }
+    }
+
     /* SCHEDULE SLOTS */
     .section-label {
       font-size: 11px;
@@ -470,20 +514,24 @@
 
   <!-- RESERVATION MODAL -->
   <div id="reservationModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <div class="modal-content">
+    <div class="modal-content modal-content--wide">
       <div class="modal-header">
         <h3 id="modalTitle">Details</h3>
         <button class="close-btn" onclick="closeModal()" aria-label="Close">&times;</button>
       </div>
 
+      <div class="modal-body">
+      <section class="modal-pane modal-pane--schedule">
       <p class="section-label">Reservations</p>
       <div id="existingList">
         <div class="skeleton-bar" style="width:70%"></div>
         <div class="skeleton-bar" style="width:50%"></div>
       </div>
+      </section>
 
       <hr class="divider">
 
+      <section class="modal-pane modal-pane--form">
       <p class="form-section-title">Reserve the college vehicle</p>
       <div class="form-hint-bar">
         <strong>Note:</strong> Units are responsible for the driver&rsquo;s TEV and college vehicle&rsquo;s fuel expenses for the duration of the trip.
@@ -506,26 +554,47 @@
           </div>
         </div>
 
-        <div class="form-row">
+        <div class="form-row wide-two-col">
           <div class="form-group">
             <label for="destination">Destination</label>
             <input type="text" id="destination" placeholder="e.g. UPLB Main Gate" required>
           </div>
-        </div>
-
-        <div class="form-row">
           <div class="form-group">
             <label for="purpose">Purpose</label>
             <input type="text" id="purpose" placeholder="e.g. Field visit" required>
           </div>
         </div>
 
-        <div class="form-row">
+        <div class="form-row wide-two-col">
+          <div class="form-group">
+            <label for="unit">Requesting unit</label>
+            <select id="unit" required>
+              <option value="" selected disabled>Select a unit</option>
+              <option>CHE DO</option>
+              <option>DCERP</option>
+              <option>DHFDS</option>
+              <option>DSDS</option>
+              <option>IHNF</option>
+              <option>BIDANI</option>
+              <option>Project</option>
+            </select>
+          </div>
           <div class="form-group">
             <label for="vehicle">Vehicle</label>
             <select id="vehicle" required>
               <option value="">Loading vehicles…</option>
             </select>
+          </div>
+        </div>
+
+        <div class="form-row two-col" id="projectFields" style="display:none;">
+          <div class="form-group">
+            <label for="projectTitle">Project title</label>
+            <input type="text" id="projectTitle" placeholder="e.g. Nutrition Survey 2026">
+          </div>
+          <div class="form-group">
+            <label for="agencyFunder">Agency funder</label>
+            <input type="text" id="agencyFunder" placeholder="e.g. DOST-PCHRD">
           </div>
         </div>
 
@@ -559,6 +628,8 @@
           <span class="spinner" id="loadingSpinner"></span>
         </button>
       </form>
+      </section>
+      </div>
     </div>
   </div>
 
@@ -610,6 +681,8 @@
         document.getElementById(id).addEventListener("change", validateTimes);
       });
 
+      document.getElementById("unit").addEventListener("change", toggleProjectFields);
+
       document.getElementById("closeConfirmation").onclick = () =>
         document.getElementById("confirmationModal").classList.remove("is-open");
       document.getElementById("closeError").onclick = closeErrorModal;
@@ -644,6 +717,17 @@
         console.error("Failed to load holidays/vehicles:", err);
       }
     };
+
+    /* UNIT / PROJECT FIELDS */
+    function toggleProjectFields() {
+      const isProject = document.getElementById("unit").value === "Project";
+      document.getElementById("projectFields").style.display = isProject ? "" : "none";
+      ["projectTitle", "agencyFunder"].forEach(id => {
+        const el = document.getElementById(id);
+        el.required = isProject;
+        if (!isProject) el.value = "";
+      });
+    }
 
     /* VEHICLE DROPDOWN */
     function populateVehicleDropdown(vehicles) {
@@ -731,6 +815,8 @@
       document.body.style.overflow = "hidden";
 
       document.getElementById("reservationForm").reset();
+      toggleProjectFields();
+      document.querySelectorAll("#reservationModal, #reservationModal .modal-pane").forEach(el => el.scrollTop = 0);
       document.getElementById("passengersContainer").innerHTML = "";
       addPassenger();
       hideDuplicateError();
@@ -885,6 +971,15 @@
       if (!vehicleSel.value) { showErrorModal("Please select a vehicle."); return; }
       const [vehicleName, vehiclePlate] = vehicleSel.value.split("||");
 
+      const unit = document.getElementById("unit").value;
+      if (!unit) { showErrorModal("Please select the requesting unit."); return; }
+      const projectTitle = document.getElementById("projectTitle").value.trim();
+      const agencyFunder = document.getElementById("agencyFunder").value.trim();
+      if (unit === "Project" && (!projectTitle || !agencyFunder)) {
+        showErrorModal("Please enter the project title and agency funder.");
+        return;
+      }
+
       const rows = document.querySelectorAll("#passengersContainer .passenger-row");
       if (!rows.length) { showErrorModal("Please add at least one passenger."); return; }
 
@@ -907,6 +1002,9 @@
         purpose: document.getElementById("purpose").value,
         vehicleName,
         vehiclePlate,
+        unit,
+        projectTitle: unit === "Project" ? projectTitle : "",
+        agencyFunder: unit === "Project" ? agencyFunder : "",
         remarks: document.getElementById("remarks").value,
         passengers,
         mainRequestor: document.getElementById("mainRequestor").value,
